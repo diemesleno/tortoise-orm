@@ -63,9 +63,10 @@ class MySQLClient(BaseDBAsyncClient):
 
     async def close(self):
         if not self.single_connection:
-            self._db_pool.close()
+            self._db_pool.terminate()
+            await self._db_pool.wait_closed()
         else:
-            self._connection.close()
+            await self._connection.ensure_closed()
 
     async def db_create(self):
         single_connection = self.single_connection
@@ -76,7 +77,7 @@ class MySQLClient(BaseDBAsyncClient):
         await self.execute_script(
             'CREATE DATABASE {}'.format(self.database)
         )
-        self._connection.close()
+        await self._connection.ensure_closed()
         self.single_connection = single_connection
 
     async def db_delete(self):
@@ -89,10 +90,11 @@ class MySQLClient(BaseDBAsyncClient):
             await self.execute_script('DROP DATABASE {}'.format(self.database))
         except pymysql.err.DatabaseError:
             pass
-        self._connection.close()
+        await self._connection.ensure_closed()
         self.single_connection = single_connection
 
     def acquire_connection(self):
+        # print("NOTRANS")
         if not self.single_connection:
             return self._db_pool.acquire()
         else:
@@ -106,6 +108,7 @@ class MySQLClient(BaseDBAsyncClient):
 
     async def execute_query(self, query, get_inserted_id=False):
         try:
+            # print(current_transaction.get())
             async with self.acquire_connection() as connection:
                 async with connection.cursor(aiomysql.DictCursor) as cursor:
                     self.log.debug(query)
@@ -156,6 +159,7 @@ class TransactionWrapper(MySQLClient):
         self._old_context_value = None
 
     def acquire_connection(self):
+        # print("TRANS")
         return ConnectionWrapper(self._connection)
 
     async def _get_connection(self):

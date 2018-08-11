@@ -16,6 +16,8 @@ help:
 
 up:
 	pip-compile -o requirements-dev.txt requirements-dev.in -U
+	cat requirements-dev.txt | fgrep -v extra-index-url > requirements-dev.txt.tmp
+	mv requirements-dev.txt.tmp requirements-dev.txt
 
 deps:
 	@pip install -q pip-tools

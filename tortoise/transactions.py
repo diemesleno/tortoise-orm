@@ -46,12 +46,10 @@ def atomic(connection_name: Optional[str] = None) -> Callable:
     :param connection_name: name of connection to run with, optional if you have only
     one db connection
     """
-    connection = _get_connection(connection_name)
-
     def wrapper(func):
         @wraps(func)
         async def wrapped(*args, **kwargs):
-            async with connection._in_transaction():
+            async with in_transaction(connection_name):
                 return await func(*args, **kwargs)
 
         return wrapped

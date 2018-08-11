@@ -1,6 +1,6 @@
 import asyncio as _asyncio
 import os as _os
-from copy import deepcopy
+import uuid as _uuid
 from typing import List
 from unittest import SkipTest, expectedFailure, skip, skipIf, skipUnless  # noqa
 
@@ -23,22 +23,23 @@ On success it will be marked as unexpected success.
 """
 
 _CONFIG = {}  # type: dict
-_APPS = {}  # type: dict
-_CONNECTIONS = {}  # type: dict
 
 
 def getDBConfig(app_label: str, modules: List[str]) -> dict:
     """
     DB Config factory, for use in testing.
     """
-    return _generate_config(
-        _TORTOISE_TEST_DB,
+    path = _TORTOISE_TEST_DB.replace('\\{', '{').replace('\\}', '}').format(_uuid.uuid4().hex)
+    config = _generate_config(
+        path,
         app_modules={
             app_label: modules
         },
-        testing=True,
         connection_label=app_label
     )
+    if _os.environ.get('TORTOISE_TEST_POOL', '0') == '0':
+        config['connections'][app_label]['credentials']['single_connection'] = True
+    return config
 
 
 async def _init_db(config):
@@ -57,8 +58,6 @@ def initializer():
     Sets up the DB for testing. Must be called as part of test environment setup.
     """
     global _CONFIG
-    global _APPS
-    global _CONNECTIONS
     _CONFIG = getDBConfig(
         app_label='models',
         modules=['tortoise.tests.testmodels'],
@@ -66,8 +65,6 @@ def initializer():
 
     loop = _asyncio.get_event_loop()
     loop.run_until_complete(_init_db(_CONFIG))
-    _APPS = deepcopy(Tortoise.apps)
-    _CONNECTIONS = Tortoise._connections.copy()
     loop.run_until_complete(Tortoise._reset_connections())
 
 
@@ -75,9 +72,10 @@ def finalizer():
     """
     Cleans up the DB after testing. Must be called as part of the test environment teardown.
     """
-    Tortoise.apps = deepcopy(_APPS)
-    Tortoise._connections = _CONNECTIONS.copy()
+    Tortoise.apps = {}
+    Tortoise._connections = {}
     loop = _asyncio.get_event_loop()
+    loop.run_until_complete(Tortoise.init(_CONFIG))
     loop.run_until_complete(Tortoise._drop_databases())
 
 
@@ -91,7 +89,6 @@ class SimpleTestCase(_TestCase):
 
     Based on `asynctest <http://asynctest.readthedocs.io/>`_
     """
-
     async def _setUpDB(self):
         pass
 
@@ -145,6 +142,8 @@ class IsolatedTestCase(SimpleTestCase):
             app_label='models',
             modules=['tortoise.tests.testmodels'],
         )
+        Tortoise.apps = {}
+        Tortoise._connections = {}
         await Tortoise.init(config, _create_db=True)
         await Tortoise.generate_schemas()
 
@@ -159,8 +158,8 @@ class TestCase(SimpleTestCase):
     """
 
     async def _setUpDB(self):
-        Tortoise.apps = deepcopy(_APPS)
-        Tortoise._connections = _CONNECTIONS.copy()
+        Tortoise.apps = {}
+        Tortoise._connections = {}
         await Tortoise.init(_CONFIG)
 
         self.transaction = await start_transaction()
